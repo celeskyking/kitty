@@ -2,53 +2,106 @@ package store
 
 import (
 	"errors"
-
 	"github.com/boltdb/bolt"
 )
 
 
-//Map the data struct to map
-type Map struct {
-	conn  *bolt.DB
-	group string
+
+func NewMap(db *DataBase,id string) (*HashMap,error) {
+	name := []byte(id)
+	if err := db.Update(func(tx *bolt.Tx)error {
+		if _, err := tx.CreateBucketIfNotExists(name);err != nil {
+			return errors.New("can not create bucket:"+err.Error())
+		}
+	});err != nil {
+		return nil, err
+	}
+	return &HashMap{db,name},nil
 }
 
 //Put key and value to the disk
-func (m *Map) Put(key string, value []byte) {
-	m.conn.Update(func(tx *bolt.Tx) error {
-		err := tx.Bucket([]byte(m.group)).Put([]byte(key), value)
-		return err
+func (m *HashMap) Put(key string, value []byte) (err error){
+	if m.name == nil {
+		return ErrDoesNotExists
+	}
+	return m.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(m.name)
+		if bucket == nil {
+			return ErrBucketNotFound
+		}
+		return bucket.Put([]byte(key),value)
 	})
 }
 
 //Get the value of key
-func (m *Map) Get(key string) []byte {
-	var value []byte
-	m.conn.View(func(tx *bolt.Tx) error {
-		value = tx.Bucket([]byte(m.group)).Get([]byte(key))
+func (m *HashMap) Get(key string) (result []byte,err error) {
+	if m.name == nil {
+		return nil,ErrDoesNotExists
+	}
+	return result,m.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(m.name)
+		if bucket == nil {
+			return ErrBucketNotFound
+		}
+		byteVal := bucket.Get([]byte(key))
+		if byteVal == nil {
+			return ErrKeyNotFound
+		}
+		result = byteVal
 		return nil
 	})
-	return value
 }
 
-//Keys return the keys of the limit
-func (m *Map) Keys(size int) [][]byte {
-	i := 0
-	keys := make([][]byte, 0)
-	m.conn.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(m.group))
-		c := b.Cursor()
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			keys = append(keys, k)
-			i++
+//Has
+func (m *HashMap) Has(key string) (found bool,err error) {
+	if m.name == nil {
+		return false,ErrDoesNotExists
+	}
+	return found, m.db.View(func(tx *bolt.Tx) error{
+		bucket := tx.Bucket(m.name)
+		if bucket == nil {
+			return ErrBucketNotFound
+		}
+		byteVal := bucket.Get([]byte(key))
+		if byteVal != nil {
+			found = true
 		}
 		return nil
 	})
-	return keys
 }
 
-//Entry is a key-value pair of map
-type Entry struct {
-	Key   string
-	Value []byte
+func(m *HashMap) Values()(results [][]byte,err error) {
+	if m.name == nil {
+		return nil, ErrDoesNotExists
+	}
+	return results, m.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(m.name)
+		if bucket == nil {
+			return ErrBucketNotFound
+		}
+		return bucket.ForEach(func(_,result []byte) error {
+			results = append(results,result)
+			return nil
+		})
+	})
 }
+
+
+func (m *HashMap) Keys() (keys []string, err error){
+	if m.name == nil {
+		return nil, ErrDoesNotExists
+	}
+	return keys, m.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(m.name)
+		if bucket == nil {
+			return ErrBucketNotFound
+		}
+		return bucket.ForEach(func(key,_ []byte) error {
+			keys = append(keys,string(key))
+			return nil
+		})
+	})
+}
+
+
+

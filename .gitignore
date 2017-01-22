@@ -32,3 +32,4 @@ _testmain.go
 vendor/
 *.iml
 bin/
+.idea/
